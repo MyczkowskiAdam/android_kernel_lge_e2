@@ -15,10 +15,13 @@
 #include <linux/wait.h>
 #include <linux/stringify.h>
 #include "wcdcal-hwdep.h"
+//
+#include <linux/switch.h>
+//
 
 #define TOMBAK_MBHC_NC	0
 #define TOMBAK_MBHC_NO	1
-#define WCD_MBHC_DEF_BUTTONS 8
+#define WCD_MBHC_DEF_BUTTONS 5
 #define WCD_MBHC_KEYCODE_NUM 8
 #define WCD_MBHC_USLEEP_RANGE_MARGIN_US 100
 #define WCD_MBHC_THR_HS_MICB_MV  2700
@@ -414,6 +417,9 @@ struct wcd_mbhc {
 	struct completion btn_press_compl;
 	struct mutex hphl_pa_lock;
 	struct mutex hphr_pa_lock;
+//
+	struct switch_dev sdev;
+//
 };
 #define WCD_MBHC_CAL_SIZE(buttons, rload) ( \
 	sizeof(struct wcd_mbhc_general_cfg) + \
