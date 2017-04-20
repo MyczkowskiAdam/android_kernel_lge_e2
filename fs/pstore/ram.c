@@ -36,6 +36,10 @@
 #include <linux/pstore_ram.h>
 #include <linux/of.h>
 
+#ifdef CONFIG_LGE_HANDLE_PANIC
+#include <mach/lge_handle_panic.h>
+#endif
+
 #define RAMOOPS_KERNMSG_HDR "===="
 #define MIN_MEM_SIZE 4096UL
 
@@ -608,6 +612,10 @@ static int ramoops_probe(struct platform_device *pdev)
 		cxt->size, (unsigned long long)cxt->phys_addr,
 		cxt->ecc_info.ecc_size, cxt->ecc_info.block_size);
 
+#ifdef CONFIG_LGE_HANDLE_PANIC
+        /* write ramoops addr to imem */
+        lge_set_ram_console_addr(cxt->phys_addr, cxt->size);
+#endif
 	return 0;
 
 fail_buf:
