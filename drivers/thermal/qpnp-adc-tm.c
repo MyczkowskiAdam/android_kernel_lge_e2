@@ -1879,6 +1879,7 @@ static void qpnp_adc_tm_high_thr_work(struct work_struct *work)
 	return;
 }
 
+#ifndef CONFIG_LGE_PM
 static irqreturn_t qpnp_adc_tm_high_thr_isr(int irq, void *data)
 {
 	struct qpnp_adc_tm_chip *chip = data;
@@ -1895,6 +1896,7 @@ static irqreturn_t qpnp_adc_tm_high_thr_isr(int irq, void *data)
 
 	return IRQ_HANDLED;
 }
+#endif
 
 static void qpnp_adc_tm_low_thr_work(struct work_struct *work)
 {
@@ -1909,6 +1911,7 @@ static void qpnp_adc_tm_low_thr_work(struct work_struct *work)
 	return;
 }
 
+#ifndef CONFIG_LGE_PM
 static irqreturn_t qpnp_adc_tm_low_thr_isr(int irq, void *data)
 {
 	struct qpnp_adc_tm_chip *chip = data;
@@ -1925,6 +1928,7 @@ static irqreturn_t qpnp_adc_tm_low_thr_isr(int irq, void *data)
 
 	return IRQ_HANDLED;
 }
+#endif
 
 static int qpnp_adc_read_temp(struct thermal_zone_device *thermal,
 			     unsigned long *temp)
@@ -2336,6 +2340,7 @@ static int qpnp_adc_tm_probe(struct spmi_device *spmi)
 		goto fail;
 	}
 
+#ifndef CONFIG_LGE_PM
 	rc = devm_request_irq(&spmi->dev, chip->adc->adc_high_thr_irq,
 				qpnp_adc_tm_high_thr_isr,
 		IRQF_TRIGGER_RISING, "qpnp_adc_tm_high_interrupt", chip);
@@ -2355,6 +2360,7 @@ static int qpnp_adc_tm_probe(struct spmi_device *spmi)
 	} else {
 		enable_irq_wake(chip->adc->adc_low_thr_irq);
 	}
+#endif
 
 	dev_set_drvdata(&spmi->dev, chip);
 	list_add(&chip->list, &qpnp_adc_tm_device_list);
