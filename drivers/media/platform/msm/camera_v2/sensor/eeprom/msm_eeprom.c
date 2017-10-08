@@ -461,6 +461,170 @@ static struct v4l2_subdev_ops msm_eeprom_subdev_ops = {
 	.core = &msm_eeprom_subdev_core_ops,
 };
 
+//                                                                      
+#ifdef CONFIG_HI544
+static uint32_t msm_eeprom_checksum(struct msm_eeprom_ctrl_t *e_ctrl)
+{
+	int CheckSum = 0;
+	int DataSum = 0;
+	int i = 0;
+	uint32_t rc_supported = 0x00;
+
+	//HI544 (LGIT) EEPROM MAP
+	const int AWB_5100K_START_ADDR   = 0x0000;
+	const int AWB_5100K_END_ADDR     = 0x0005;
+	const int AWB_5100K_CHECKSUM_MSB = 0x0006;
+	const int AWB_5100K_CHECKSUM_LSB = 0x0007;
+
+	const int LSC_5100K_START_ADDR   = 0x000C;
+	const int LSC_5100K_END_ADDR     = 0x037F;
+	const int LSC_5100K_CHECKSUM_MSB = 0x0380;
+	const int LSC_5100K_CHECKSUM_LSB = 0x0381;
+
+	CDBG(">> %s START\n", __func__);
+
+	/////////////////////////////////////////////////////////////////////////
+	// 1. AWB CheckSum
+	/////////////////////////////////////////////////////////////////////////
+    CheckSum = (e_ctrl->cal_data.mapdata[AWB_5100K_CHECKSUM_MSB] << 8)
+    		  + e_ctrl->cal_data.mapdata[AWB_5100K_CHECKSUM_LSB];
+    DataSum = 0;
+
+    for( i = AWB_5100K_START_ADDR; i <= AWB_5100K_END_ADDR; i++ ) {
+		DataSum  += e_ctrl->cal_data.mapdata[i];
+     }
+
+	DataSum &= 0x0000FFFF;
+
+	CDBG("[CHECK] AWB CheckSum: 0x%04x, DataSum: 0x%04x\n", CheckSum, DataSum);
+	if( CheckSum != DataSum ) {
+        pr_err("%s HI544 EEPROM AWB CheckSum error for 5100K!\n", __func__);
+    } else {
+        CDBG("%s HI544 EEPROM AWB CheckSum for 5100K - OK\n", __func__);
+        rc_supported |= 0x10; //AWB bit On
+    }
+
+	/////////////////////////////////////////////////////////////////////////
+	// 2. LSC CheckSum
+	/////////////////////////////////////////////////////////////////////////
+    CheckSum = (e_ctrl->cal_data.mapdata[LSC_5100K_CHECKSUM_MSB] << 8)
+    		  + e_ctrl->cal_data.mapdata[LSC_5100K_CHECKSUM_LSB];
+    DataSum = 0;
+
+    for( i = LSC_5100K_START_ADDR; i <= LSC_5100K_END_ADDR; i++ ) {
+		DataSum  += e_ctrl->cal_data.mapdata[i];
+    }
+
+	DataSum &= 0x0000FFFF;
+
+	CDBG("[CHECK] LSC CheckSum: 0x%04x, DataSum: 0x%04x\n", CheckSum, DataSum);
+	if (CheckSum == 0) {
+		//LSC Data does NOT exist
+        pr_err("%s HI544 EEPROM LSC NOT Supported for 5100K!\n", __func__);
+	}
+	else if( CheckSum != DataSum ) {
+		//LSC data exist, But CheckSum Failed!
+        pr_err("%s HI544 EEPROM LSC CheckSum error for 5100K!\n", __func__);
+    } else {
+    	//e_ctrl->is_supported |= 0x20; //LSC bit On
+        CDBG("%s HI544 EEPROM LSC CheckSum for 5100K - OK\n", __func__);
+        rc_supported |= 0x20; //LSC bit On
+    }
+
+    CDBG("<< %s END (rc_supported: 0x%X) @Line:%d\n", __func__, rc_supported, __LINE__);
+	return rc_supported;
+}
+#endif
+//                                                                      
+
+static int msm_eeprom_i2c_probe(struct i2c_client *client,
+			 const struct i2c_device_id *id)
+{
+	int rc = 0;
+	struct msm_eeprom_ctrl_t *e_ctrl = NULL;
+	struct msm_camera_power_ctrl_t *power_info = NULL;
+	CDBG("%s E\n", __func__);
+
+	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
+		pr_err("%s i2c_check_functionality failed\n", __func__);
+		goto probe_failure;
+	}
+
+	e_ctrl = kzalloc(sizeof(*e_ctrl), GFP_KERNEL);
+	if (!e_ctrl) {
+		pr_err("%s:%d kzalloc failed\n", __func__, __LINE__);
+		return -ENOMEM;
+	}
+	e_ctrl->eeprom_v4l2_subdev_ops = &msm_eeprom_subdev_ops;
+	e_ctrl->eeprom_mutex = &msm_eeprom_mutex;
+	CDBG("%s client = 0x%p\n", __func__, client);
+	e_ctrl->eboard_info = (struct msm_eeprom_board_info *)(id->driver_data);
+	if (!e_ctrl->eboard_info) {
+		pr_err("%s:%d board info NULL\n", __func__, __LINE__);
+		rc = -EINVAL;
+		goto ectrl_free;
+	}
+	power_info = &e_ctrl->eboard_info->power_info;
+	e_ctrl->i2c_client.client = client;
+
+	/* Set device type as I2C */
+	e_ctrl->eeprom_device_type = MSM_CAMERA_I2C_DEVICE;
+	e_ctrl->i2c_client.i2c_func_tbl = &msm_eeprom_qup_func_tbl;
+
+	if (e_ctrl->eboard_info->i2c_slaveaddr != 0)
+		e_ctrl->i2c_client.client->addr =
+					e_ctrl->eboard_info->i2c_slaveaddr;
+	power_info->clk_info = cam_8960_clk_info;
+	power_info->clk_info_size = ARRAY_SIZE(cam_8960_clk_info);
+	power_info->dev = &client->dev;
+
+	/*IMPLEMENT READING PART*/
+	/* Initialize sub device */
+	v4l2_i2c_subdev_init(&e_ctrl->msm_sd.sd,
+		e_ctrl->i2c_client.client,
+		e_ctrl->eeprom_v4l2_subdev_ops);
+	v4l2_set_subdevdata(&e_ctrl->msm_sd.sd, e_ctrl);
+	e_ctrl->msm_sd.sd.internal_ops = &msm_eeprom_internal_ops;
+	e_ctrl->msm_sd.sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
+	media_entity_init(&e_ctrl->msm_sd.sd.entity, 0, NULL, 0);
+	e_ctrl->msm_sd.sd.entity.type = MEDIA_ENT_T_V4L2_SUBDEV;
+	e_ctrl->msm_sd.sd.entity.group_id = MSM_CAMERA_SUBDEV_EEPROM;
+	msm_sd_register(&e_ctrl->msm_sd);
+	CDBG("%s success result=%d X\n", __func__, rc);
+	return rc;
+
+ectrl_free:
+	kfree(e_ctrl);
+probe_failure:
+	pr_err("%s failed! rc = %d\n", __func__, rc);
+	return rc;
+}
+
+static int msm_eeprom_i2c_remove(struct i2c_client *client)
+{
+	struct v4l2_subdev *sd = i2c_get_clientdata(client);
+	struct msm_eeprom_ctrl_t  *e_ctrl;
+	if (!sd) {
+		pr_err("%s: Subdevice is NULL\n", __func__);
+		return 0;
+	}
+
+	e_ctrl = (struct msm_eeprom_ctrl_t *)v4l2_get_subdevdata(sd);
+	if (!e_ctrl) {
+		pr_err("%s: eeprom device is NULL\n", __func__);
+		return 0;
+	}
+
+	kfree(e_ctrl->cal_data.mapdata);
+	kfree(e_ctrl->cal_data.map);
+	if (e_ctrl->eboard_info) {
+		kfree(e_ctrl->eboard_info->power_info.gpio_conf);
+		kfree(e_ctrl->eboard_info);
+	}
+	kfree(e_ctrl);
+	return 0;
+}
+
 #define msm_eeprom_spi_parse_cmd(spic, str, name, out, size)		\
 	{								\
 		if (of_property_read_u32_array(				\
@@ -1067,6 +1231,14 @@ static int msm_eeprom_platform_probe(struct platform_device *pdev)
 
 	e_ctrl->is_supported |= msm_eeprom_match_crc(&e_ctrl->cal_data);
 
+	//                                                                      
+	#ifdef CONFIG_HI544
+	CDBG("[CHECK] [BEFORE] e_ctrl->is_supported: 0x%X", e_ctrl->is_supported);
+	e_ctrl->is_supported |= msm_eeprom_checksum(e_ctrl);
+	CDBG("[CHECK] [AFTER]  e_ctrl->is_supported: 0x%X", e_ctrl->is_supported);
+	#endif
+	//                                                                      
+
 	rc = msm_camera_power_down(power_info, e_ctrl->eeprom_device_type,
 		&e_ctrl->i2c_client);
 	if (rc) {
@@ -1094,6 +1266,8 @@ static int msm_eeprom_platform_probe(struct platform_device *pdev)
 #endif
 
 	e_ctrl->is_supported = (e_ctrl->is_supported << 1) | 1;
+	CDBG("[CHECK] [FINAL]  e_ctrl->is_supported: 0x%X", e_ctrl->is_supported);
+
 	CDBG("%s X\n", __func__);
 	return rc;
 
