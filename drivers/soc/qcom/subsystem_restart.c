@@ -40,6 +40,10 @@
 
 #include <asm/current.h>
 
+#ifdef CONFIG_LGE_HANDLE_PANIC
+#include <mach/lge_handle_panic.h>
+#endif
+
 #define DISABLE_SSR 0x9889deed
 /* If set to 0x9889deed, call to subsystem_restart_dev() returns immediately */
 static uint disable_restart_work;
@@ -553,6 +557,9 @@ static void subsystem_shutdown(struct subsys_device *dev, void *data)
 	pr_info("[%s:%d]: Shutting down %s\n",
 			current->comm, current->pid, name);
 	if (dev->desc->shutdown(dev->desc, true) < 0)
+#ifdef CONFIG_LGE_HANDLE_PANIC
+		lge_set_subsys_crash_reason(name, LGE_ERR_SUB_SD);
+#endif
 		panic("subsys-restart: [%s:%d]: Failed to shutdown %s!",
 			current->comm, current->pid, name);
 	dev->crash_count++;
@@ -588,6 +595,9 @@ static void subsystem_powerup(struct subsys_device *dev, void *data)
 	if (dev->desc->powerup(dev->desc) < 0) {
 		notify_each_subsys_device(&dev, 1, SUBSYS_POWERUP_FAILURE,
 								NULL);
+#ifdef CONFIG_LGE_HANDLE_PANIC
+		lge_set_subsys_crash_reason(name, LGE_ERR_SUB_PWR);
+#endif
 		panic("[%s:%d]: Powerup error: %s!",
 			current->comm, current->pid, name);
 	}
@@ -911,6 +921,9 @@ static void device_restart_work_hdlr(struct work_struct *work)
 							device_restart_work);
 
 	notify_each_subsys_device(&dev, 1, SUBSYS_SOC_RESET, NULL);
+#ifdef CONFIG_LGE_HANDLE_PANIC
+	lge_set_subsys_crash_reason(dev->desc->name, LGE_ERR_SUB_RST);
+#endif
 	panic("subsys-restart: Resetting the SoC - %s crashed.",
 							dev->desc->name);
 }
@@ -955,10 +968,16 @@ int subsystem_restart_dev(struct subsys_device *dev)
 		__subsystem_restart_dev(dev);
 		break;
 	case RESET_SOC:
+#ifdef CONFIG_LGE_HANDLE_PANIC
+                lge_set_subsys_crash_reason(name, LGE_ERR_SUB_RST);
+#endif
 		__pm_stay_awake(&dev->ssr_wlock);
 		schedule_work(&dev->device_restart_work);
 		return 0;
 	default:
+#ifdef CONFIG_LGE_HANDLE_PANIC
+		lge_set_subsys_crash_reason(name, LGE_ERR_SUB_UNK);
+#endif
 		panic("subsys-restart: Unknown restart level!\n");
 		break;
 	}
@@ -982,6 +1001,42 @@ int subsystem_restart(const char *name)
 	return ret;
 }
 EXPORT_SYMBOL(subsystem_restart);
+
+/* START : subsys_modem_restart : testmode */
+/**
+ * subsys_modem_restart() - modem restart silently
+ *
+ * modem restart silently
+ */
+int subsys_modem_restart(void)
+{
+	int ret;
+	int rsl;
+	struct subsys_tracking *track;
+	struct subsys_device *dev = find_subsys("modem");
+
+	if (!dev)
+		return -ENODEV;
+
+	track = subsys_get_track(dev);
+
+	if (dev->track.state != SUBSYS_ONLINE ||
+		track->p_state != SUBSYS_NORMAL)
+		return -ENODEV;
+
+	rsl = dev->restart_level;
+	dev->restart_level = RESET_SUBSYS_COUPLED;
+	subsys_set_crash_status(dev, true);
+	ret = subsystem_restart_dev(dev);
+	dev->restart_level = rsl;
+#ifdef CONFIG_MACH_LGE
+	//modem_reboot_cnt--;
+#endif
+	put_device(&dev->dev);
+	return ret;
+}
+EXPORT_SYMBOL(subsys_modem_restart);
+/* END : subsys_modem_restart : testmode */
 
 int subsystem_crashed(const char *name)
 {

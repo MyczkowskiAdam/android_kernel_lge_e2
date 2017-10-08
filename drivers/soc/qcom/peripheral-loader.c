@@ -293,7 +293,6 @@ static struct pil_seg *pil_init_seg(const struct pil_desc *desc,
 		return ERR_PTR(-ENOMEM);
 	seg->num = num;
 	seg->paddr = reloc ? pil_reloc(priv, phdr->p_paddr) : phdr->p_paddr;
-	seg->filesz = phdr->p_filesz;
 	seg->sz = phdr->p_memsz;
 	seg->relocated = reloc;
 	INIT_LIST_HEAD(&seg->list);
